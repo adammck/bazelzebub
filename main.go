@@ -14,6 +14,11 @@ import (
 func main() {
 	bazelzebub(func(data interface{}) {
 
+		// don't try to mutate a second time.
+		if data.(*Dict).Get("prefix") != "hello-world" {
+			return
+		}
+
 		// mutate one key right at the top.
 		data.(*Dict).Set("prefix", "Mutated!")
 
@@ -117,6 +122,7 @@ func bazelzebub(mutator func(interface{})) {
 	}()
 
 	fmt.Fprint(f, formatted.String())
+	fmt.Println("ok")
 }
 
 func fatal(err error) {
