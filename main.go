@@ -12,20 +12,31 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s filename\n", os.Args[0])
-		os.Exit(1)
-	}
+	bazelzebub(func(data interface{}) {
 
-	inner(func(data interface{}) {
-		d := data.(map[string]interface{})
-		d["prefix"] = "Mutated!"
+		// mutate one key right at the top.
+		data.(*Dict).Set("prefix", "Mutated!")
+
+		// lol golang
+		cluster := data.(*Dict).Get("environments").([]interface{})[1].(*Dict).Get("datacenters").([]interface{})[0].(*Dict).Get("clusters").([]interface{})[0].(*Dict)
+		shards := cluster.Get("shards").([]interface{})
+
+		// let's split S3 in an extremely verbose way.
+		shards = shards[0 : len(shards)-1]
+		shards = append(shards, &Dict{[]*Tuple{{"name", "S4"}, {"partitions", []interface{}{7}}, {"split", true}}})
+		shards = append(shards, &Dict{[]*Tuple{{"name", "S5"}, {"partitions", []interface{}{8}}, {"split", true}}})
+		cluster.Set("shards", shards)
 	})
 }
 
 // TODO: Move this to a separate file.
 
-func inner(mutator func(interface{})) {
+func bazelzebub(mutator func(interface{})) {
+	if len(os.Args) != 2 {
+		fmt.Fprintf(os.Stderr, "Usage: %s filename\n", os.Args[0])
+		os.Exit(1)
+	}
+
 	if len(os.Args) != 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s filename\n", os.Args[0])
 		os.Exit(1)
@@ -154,7 +165,7 @@ func toGolang(data starlark.Value) (interface{}, error) {
 		return r, nil
 
 	case *starlark.Dict:
-		r := map[string]interface{}{}
+		r := &Dict{}
 
 		for _, k := range x.Keys() {
 			kk, err := toGolang(k)
@@ -177,7 +188,7 @@ func toGolang(data starlark.Value) (interface{}, error) {
 				return nil, err
 			}
 
-			r[kkk] = vv
+			r.elems = append(r.elems, &Tuple{kkk, vv})
 		}
 
 		return r, nil
@@ -219,17 +230,17 @@ func toStarlark(data interface{}) (starlark.Value, error) {
 
 		return starlark.NewList(elems), nil
 
-	case map[string]interface{}:
-		r := starlark.NewDict(len(x))
+	case *Dict:
+		r := starlark.NewDict(len(x.elems))
 
-		for k, v := range x {
-			vv, err := toStarlark(v)
+		for _, tup := range x.elems {
+			vv, err := toStarlark(tup.val)
 			if err != nil {
 				return nil, err
 			}
 
 			// No need to recuse for key; only string is supported.
-			r.SetKey(starlark.String(k), vv)
+			r.SetKey(starlark.String(tup.key), vv)
 		}
 
 		return r, nil
@@ -237,4 +248,34 @@ func toStarlark(data interface{}) (starlark.Value, error) {
 	default:
 		return nil, fmt.Errorf("not supported: %T", x)
 	}
+}
+
+type Dict struct {
+	elems []*Tuple
+}
+
+func (d *Dict) Get(key string) interface{} {
+	for _, tup := range d.elems {
+		if tup.key == key {
+			return tup.val
+		}
+	}
+
+	return nil
+}
+
+func (d *Dict) Set(key string, val interface{}) {
+	for _, tup := range d.elems {
+		if tup.key == key {
+			tup.val = val
+			return
+		}
+	}
+
+	d.elems = append(d.elems, &Tuple{key, val})
+}
+
+type Tuple struct {
+	key string
+	val interface{}
 }
